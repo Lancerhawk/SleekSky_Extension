@@ -1,0 +1,230 @@
+{
+  "name": "sleekcms-sync",
+  "displayName": "SleekCMS Sync",
+  "description": "Real-time bidirectional sync between VS Code and SleekCMS templates with automatic change detection",
+  "version": "1.3.0",
+  "publisher": "ArinJain",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "sleekcms",
+    "cms",
+    "sync",
+    "templates",
+    "headless cms",
+    "real-time sync"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sleekcms/sleekcms-ide-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/sleekcms/sleekcms-ide-extension/issues"
+  },
+  "homepage": "https://github.com/sleekcms/sleekcms-ide-extension#readme",
+  "license": "MIT",
+  "author": {
+    "name": "Arin Jain",
+    "email": "70001933arin@gmail.com"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sleekcms-sidebar",
+          "title": "SleekCMS Sites",
+          "icon": "images/sidebar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sleekcms-sidebar": [
+        {
+          "id": "sleekcmsSites",
+          "name": "My Sites",
+          "icon": "$(database)"
+        },
+        {
+          "id": "sleekcmsFiles",
+          "name": "Files",
+          "icon": "$(files)",
+          "when": "sleekcms.syncing"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "sleekcms-sync.start",
+        "title": "SleekCMS: Add New Site",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sleekcms-sync.connectToSite",
+        "title": "Connect to Site",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "sleekcms-sync.removeSite",
+        "title": "Remove Site",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sleekcms-sync.stop",
+        "title": "SleekCMS: Stop Sync",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sleekcms-sync.refresh",
+        "title": "SleekCMS: Refresh Current File",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sleekcms-sync.clearToken",
+        "title": "SleekCMS: Clear All Sites",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sleekcms-sync.refreshSiteList",
+        "title": "Refresh Site List",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sleekcms-sync.refreshFileTree",
+        "title": "Refresh Files",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sleekcms-sync.openFile",
+        "title": "Open File"
+      },
+      {
+        "command": "sleekcms-sync.newFile",
+        "title": "New File",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "sleekcms-sync.newFolder",
+        "title": "New Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "sleekcms-sync.deleteFile",
+        "title": "Delete File",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sleekcms-sync.deleteFolder",
+        "title": "Delete Folder",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sleekcms-sync.start",
+          "when": "view == sleekcmsSites",
+          "group": "navigation"
+        },
+        {
+          "command": "sleekcms-sync.refreshSiteList",
+          "when": "view == sleekcmsSites",
+          "group": "navigation"
+        },
+        {
+          "command": "sleekcms-sync.newFile",
+          "when": "view == sleekcmsFiles",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sleekcms-sync.newFolder",
+          "when": "view == sleekcmsFiles",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sleekcms-sync.refreshFileTree",
+          "when": "view == sleekcmsFiles",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sleekcms-sync.removeSite",
+          "when": "view == sleekcmsSites && viewItem == site",
+          "group": "inline"
+        },
+        {
+          "command": "sleekcms-sync.newFile",
+          "when": "view == sleekcmsFiles && viewItem == folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "sleekcms-sync.newFolder",
+          "when": "view == sleekcmsFiles && viewItem == folder",
+          "group": "inline@2"
+        },
+        {
+          "command": "sleekcms-sync.deleteFile",
+          "when": "view == sleekcmsFiles && viewItem == file",
+          "group": "inline"
+        },
+        {
+          "command": "sleekcms-sync.deleteFolder",
+          "when": "view == sleekcmsFiles && viewItem == folder",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SleekCMS",
+      "properties": {
+        "sleekcms.token": {
+          "type": "string",
+          "default": "",
+          "description": "Your SleekCMS API token (deprecated - use sidebar to manage sites)"
+        },
+        "sleekcms.environment": {
+          "type": "string",
+          "enum": [
+            "production",
+            "development",
+            "localhost"
+          ],
+          "default": "production",
+          "description": "SleekCMS environment (deprecated - use sidebar to manage sites)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@types/fs-extra": "^11.0.4",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.5",
+    "chokidar": "^3.5.3",
+    "fs-extra": "^11.2.0"
+  }
+}

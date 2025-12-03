@@ -1,0 +1,14 @@
+node_modules/**/test/**
+node_modules/**/docs/**
+node_modules/**/examples/**
+node_modules/**/benchmark/**
+node_modules/**/coverage/**
+.git/**
+.gitignore
+src/**
+.vscode/**
+tsconfig.json
+.eslintrc.json
+.eslintignore
+.vscodeignore
+**/*.map
