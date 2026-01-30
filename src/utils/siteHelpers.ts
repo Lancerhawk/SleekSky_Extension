@@ -17,7 +17,7 @@ export function detectEnvironmentFromToken(token: string | undefined): SleekEnvi
         return 'staging';
     }
 
-    if (normalized.endsWith('-local')) {
+    if (normalized.endsWith('-local') || normalized.endsWith('-localhost')) {
         return 'localhost';
     }
 

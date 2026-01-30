@@ -2,7 +2,7 @@
   "name": "sleekcms-sync",
   "displayName": "SleekCMS Sync",
   "description": "Real-time bidirectional sync between VS Code and SleekCMS templates with automatic change detection",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "ArinJain",
   "icon": "images/icon.png",
   "engines": {
@@ -215,7 +215,6 @@
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@types/node": "18.x",
-    "@types/fs-extra": "^11.0.4",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",
@@ -223,8 +222,6 @@
     "@vscode/vsce": "^2.22.0"
   },
   "dependencies": {
-    "axios": "^1.6.5",
-    "chokidar": "^3.5.3",
-    "fs-extra": "^11.2.0"
+    "axios": "^1.6.5"
   }
 }

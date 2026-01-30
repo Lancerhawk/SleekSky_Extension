@@ -39,6 +39,17 @@ export class SleekCMSApi {
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
         });
+
+        this.client.interceptors.response.use(
+            (response) => response,
+            (error) => {
+                if (error.config) {
+                    const fullUrl = `${error.config.baseURL || ''}${error.config.url || ''}`;
+                    error.message = `${error.message} (Endpoint: ${fullUrl})`;
+                }
+                return Promise.reject(error);
+            }
+        );
     }
 
     async fetchAllTemplates(): Promise<Template[]> {

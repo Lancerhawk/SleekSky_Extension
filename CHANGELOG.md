@@ -2,7 +2,25 @@
 
 All notable changes to the "SleekCMS Sync" extension will be documented in this file.
 
-## [1.3.0] - 2025-01-XX
+## [1.3.1] - 2026-01-31
+
+### 🛠️ Technical Improvements
+- **Dependency Cleanup**: Removed unnecessary dependencies for cleaner package
+  - Removed `chokidar` dependency (no longer needed with virtual file system)
+  - Removed `fs-extra` dependency (no longer needed with virtual file system)
+  - Reduced total dependencies from 3 to 1 (only `axios` required)
+  - Smaller package size and faster installation
+- **Code Cleanup**: Removed obsolete `fileSync.ts` file from previous implementation
+- **Better Architecture**: Fully committed to virtual file system approach without legacy file-based code
+
+### 📦 Package Improvements
+- Lighter extension package with fewer dependencies
+- Faster installation and updates
+- Reduced potential for dependency conflicts
+
+---
+
+## [1.3.0] - 2026-01-31
 
 ### 🎉 Major Update: Virtual File System Architecture
 

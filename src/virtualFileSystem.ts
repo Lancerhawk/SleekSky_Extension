@@ -249,7 +249,7 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
 
     // Start polling for remote changes
     startPolling(): void {
-        const POLL_INTERVAL = 5000;
+        const POLL_INTERVAL = 60000;
         this.pollInterval = setInterval(async () => {
             if (!this.isShuttingDown && !this.isLocalUpdate) {
                 await this.checkForRemoteChanges();
