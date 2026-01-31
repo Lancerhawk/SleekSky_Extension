@@ -2,7 +2,7 @@
 
 Real-time bidirectional sync between VS Code/Cursor and SleekCMS. Edit your templates locally with the full power of your IDE while staying in sync with your SleekCMS server.
 
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## ✨ Features
