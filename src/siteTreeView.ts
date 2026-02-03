@@ -16,17 +16,33 @@ export interface SavedSite {
 export class SiteTreeItem extends vscode.TreeItem {
     constructor(
         public readonly site: SavedSite,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState
+        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+        public readonly isConnected: boolean = false
     ) {
         super(site.name, collapsibleState);
-        this.tooltip = site.subdomain
-            ? `${site.name} (${site.environment}) • ${site.subdomain}`
-            : `${site.name} (${site.environment})`;
-        this.description = site.subdomain || site.environment;
+        
+        // Build rich tooltip with connection status
+        const statusLine = isConnected ? '● Connected' : '○ Click to connect';
+        const envLine = `Environment: ${site.environment}`;
+        const subdomainLine = site.subdomain ? `Subdomain: ${site.subdomain}` : '';
+        
+        this.tooltip = new vscode.MarkdownString(
+            `### ${site.name}\n\n` +
+            `**${statusLine}**\n\n` +
+            `${envLine}${subdomainLine ? '\n\n' + subdomainLine : ''}`
+        );
+        
+        // Show connection status in description
+        this.description = isConnected 
+            ? `● Connected` 
+            : (site.subdomain || site.environment);
+        
         this.contextValue = 'site';
         
-        // Add icons
-        this.iconPath = new vscode.ThemeIcon('database');
+        // Use different icon for connected vs disconnected
+        this.iconPath = isConnected
+            ? new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'))
+            : new vscode.ThemeIcon('database');
         
         // Make it clickable
         this.command = {
@@ -40,11 +56,22 @@ export class SiteTreeItem extends vscode.TreeItem {
 export class SiteTreeProvider implements vscode.TreeDataProvider<SiteTreeItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<SiteTreeItem | undefined | null>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+    
+    private connectedSiteToken: string | undefined;
 
     constructor(private context: vscode.ExtensionContext) {}
 
     refresh(): void {
         this._onDidChangeTreeData.fire(undefined);
+    }
+    
+    setConnectedSite(token: string | undefined): void {
+        this.connectedSiteToken = token;
+        this.refresh();
+    }
+    
+    getConnectedSiteToken(): string | undefined {
+        return this.connectedSiteToken;
     }
 
     getTreeItem(element: SiteTreeItem): vscode.TreeItem {
@@ -53,7 +80,12 @@ export class SiteTreeProvider implements vscode.TreeDataProvider<SiteTreeItem> {
 
     async getChildren(): Promise<SiteTreeItem[]> {
         const sites = this.getSavedSites();
-        return sites.map(site => new SiteTreeItem(site, vscode.TreeItemCollapsibleState.None));
+        
+        return sites.map(site => new SiteTreeItem(
+            site, 
+            vscode.TreeItemCollapsibleState.None,
+            site.token === this.connectedSiteToken
+        ));
     }
 
     getSavedSites(): SavedSite[] {
@@ -74,6 +106,7 @@ export class SiteTreeProvider implements vscode.TreeDataProvider<SiteTreeItem> {
         const filtered = sites.filter(s => s.token !== normalized.token);
         filtered.push(normalized);
         await this.context.globalState.update('sleekcms.savedSites', filtered);
+        vscode.commands.executeCommand('setContext', 'sleekcms.hasSites', true);
         this.refresh();
     }
 
@@ -81,6 +114,7 @@ export class SiteTreeProvider implements vscode.TreeDataProvider<SiteTreeItem> {
         const sites = this.getSavedSites();
         const filtered = sites.filter(s => s.token !== token);
         await this.context.globalState.update('sleekcms.savedSites', filtered);
+        vscode.commands.executeCommand('setContext', 'sleekcms.hasSites', filtered.length > 0);
         this.refresh();
     }
     private normalizeSite(site: Partial<SavedSite>): SavedSite {

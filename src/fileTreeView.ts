@@ -13,10 +13,14 @@ export class FileTreeItem extends vscode.TreeItem {
         this.tooltip = filePath;
         this.contextValue = isDirectory ? 'folder' : 'file';
         
+        // Use resourceUri to leverage VS Code's file icon theme for automatic icons
+        // This provides the best file type icons based on user's icon theme
+        this.resourceUri = vscode.Uri.parse(filePath);
+        
         if (isDirectory) {
             this.iconPath = new vscode.ThemeIcon('folder');
         } else {
-            // Set icon based on file extension
+            // Set icon based on file extension with expanded icon support
             this.iconPath = this.getFileIcon(label);
             this.command = {
                 command: 'sleekcms-sync.openFile',
@@ -28,15 +32,122 @@ export class FileTreeItem extends vscode.TreeItem {
 
     private getFileIcon(fileName: string): vscode.ThemeIcon {
         const ext = path.extname(fileName).toLowerCase();
+        const baseName = path.basename(fileName).toLowerCase();
+        
+        // Special file names
+        const specialFileIcons: { [key: string]: string } = {
+            'package.json': 'symbol-package',
+            'package-lock.json': 'symbol-package',
+            'tsconfig.json': 'symbol-namespace',
+            '.gitignore': 'git-commit',
+            '.env': 'symbol-key',
+            '.env.local': 'symbol-key',
+            '.env.production': 'symbol-key',
+            'dockerfile': 'package',
+            'docker-compose.yml': 'package',
+            'docker-compose.yaml': 'package',
+            'readme.md': 'book',
+            'license': 'law',
+            'license.md': 'law',
+            'changelog.md': 'history',
+        };
+        
+        if (specialFileIcons[baseName]) {
+            return new vscode.ThemeIcon(specialFileIcons[baseName]);
+        }
+        
+        // Extension-based icons with expanded support
         const iconMap: { [key: string]: string } = {
-            '.html': 'file-code',
-            '.htm': 'file-code',
-            '.css': 'file-code',
-            '.js': 'file-code',
-            '.json': 'json',
+            // Web
+            '.html': 'code',
+            '.htm': 'code',
+            '.css': 'symbol-color',
+            '.scss': 'symbol-color',
+            '.sass': 'symbol-color',
+            '.less': 'symbol-color',
+            
+            // JavaScript/TypeScript
+            '.js': 'symbol-method',
+            '.mjs': 'symbol-method',
+            '.cjs': 'symbol-method',
+            '.jsx': 'symbol-method',
+            '.ts': 'symbol-class',
+            '.tsx': 'symbol-class',
+            '.d.ts': 'symbol-interface',
+            
+            // Data formats
+            '.json': 'bracket',
+            '.xml': 'bracket-dot',
+            '.yaml': 'list-tree',
+            '.yml': 'list-tree',
+            '.toml': 'list-tree',
+            '.csv': 'table',
+            
+            // Documentation
             '.md': 'markdown',
+            '.mdx': 'markdown',
             '.txt': 'file-text',
-            '.xml': 'file-code',
+            '.rtf': 'file-text',
+            '.pdf': 'file-pdf',
+            
+            // Images
+            '.png': 'file-media',
+            '.jpg': 'file-media',
+            '.jpeg': 'file-media',
+            '.gif': 'file-media',
+            '.svg': 'file-media',
+            '.ico': 'file-media',
+            '.webp': 'file-media',
+            '.bmp': 'file-media',
+            
+            // Programming languages
+            '.py': 'symbol-variable',
+            '.rb': 'ruby',
+            '.php': 'symbol-misc',
+            '.java': 'symbol-class',
+            '.c': 'symbol-operator',
+            '.cpp': 'symbol-operator',
+            '.h': 'symbol-interface',
+            '.hpp': 'symbol-interface',
+            '.cs': 'symbol-class',
+            '.go': 'symbol-event',
+            '.rs': 'symbol-struct',
+            '.swift': 'symbol-event',
+            '.kt': 'symbol-class',
+            
+            // Shell/Config
+            '.sh': 'terminal',
+            '.bash': 'terminal',
+            '.zsh': 'terminal',
+            '.fish': 'terminal',
+            '.bat': 'terminal',
+            '.cmd': 'terminal',
+            '.ps1': 'terminal',
+            
+            // Database
+            '.sql': 'database',
+            '.db': 'database',
+            '.sqlite': 'database',
+            
+            // Archives
+            '.zip': 'file-zip',
+            '.tar': 'file-zip',
+            '.gz': 'file-zip',
+            '.rar': 'file-zip',
+            '.7z': 'file-zip',
+            
+            // Fonts
+            '.ttf': 'text-size',
+            '.otf': 'text-size',
+            '.woff': 'text-size',
+            '.woff2': 'text-size',
+            '.eot': 'text-size',
+            
+            // Binary/Executables
+            '.exe': 'file-binary',
+            '.dll': 'file-binary',
+            '.so': 'file-binary',
+            '.dylib': 'file-binary',
         };
         
         return new vscode.ThemeIcon(iconMap[ext] || 'file');
@@ -153,7 +264,7 @@ export class FileTreeProvider implements vscode.TreeDataProvider<FileTreeItem> {
                     childUri.toString(),
                     isDirectory,
                     isDirectory 
-                        ? vscode.TreeItemCollapsibleState.Collapsed 
+                        ? vscode.TreeItemCollapsibleState.Expanded 
                         : vscode.TreeItemCollapsibleState.None
                 );
 

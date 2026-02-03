@@ -2,6 +2,39 @@
 
 All notable changes to the "SleekCMS Sync" extension will be documented in this file.
 
+## [1.4.0] - 2026-02-03
+
+### 🐛 Bug Fixes & Improvements
+
+#### Connection Stability
+- **Race Condition Prevention**: Added `isConnecting` flag to prevent multiple simultaneous site connections
+  - Prevents duplicate connection attempts when clicking sites rapidly
+  - Ensures clean connection state transitions
+  - Avoids conflicts during site switching operations
+
+#### User Interface Enhancements
+- **Welcome View Support**: Added `hasSites` context for better empty state handling
+  - Shows helpful welcome message when no sites are saved
+  - Provides clear call-to-action to add first site
+  - Improves first-time user experience
+- **Enhanced File Tree View**: Improved file tree panel with better metadata
+  - Added `contextualTitle` to both views for clearer context
+  - Added `initialSize` properties to control panel sizing (25% for sites, 75% for files)
+  - Changed "Files" to "Site Files" for better clarity
+  - Better visual hierarchy in sidebar
+- **Connected Site Indicator**: Added visual indicator in site tree view
+  - Shows which site is currently connected
+  - Calls `setConnectedSite()` to mark active connection
+  - Clears indicator when disconnecting or switching sites
+
+#### 🛠️ Technical Improvements
+- Better state management during site switching
+- Improved context management for UI visibility
+- Enhanced user experience with clearer visual feedback
+- More robust connection handling
+
+---
+
 ## [1.3.1] - 2026-01-31
 
 ### 🛠️ Technical Improvements

@@ -14,6 +14,7 @@ let currentSiteName: string | undefined;
 let currentSiteId: string | undefined;
 let currentWorkspaceFolderIndex: number | undefined;
 let fileSystemProviderDisposable: vscode.Disposable | undefined;
+let isConnecting = false;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('SleekCMS Sync extension is now active!');
@@ -24,6 +25,10 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize Site TreeView (top section)
     siteTreeProvider = new SiteTreeProvider(context);
     vscode.window.registerTreeDataProvider('sleekcmsSites', siteTreeProvider);
+    
+    // Initialize hasSites context for welcome view
+    const savedSites = siteTreeProvider.getSavedSites();
+    vscode.commands.executeCommand('setContext', 'sleekcms.hasSites', savedSites.length > 0);
 
     // Initialize File TreeView (bottom section)
     fileTreeProvider = new FileTreeProvider();
@@ -83,6 +88,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Connect to Site (AUTO-SWITCH)
     let connectToSite = vscode.commands.registerCommand('sleekcms-sync.connectToSite', async (site: SavedSite) => {
+        // Prevent multiple simultaneous connections
+        if (isConnecting) {
+            console.log('Connection already in progress, ignoring request');
+            return;
+        }
+        
+        isConnecting = true;
+        
+        try {
         if (fileSystemProvider) {
             console.log(`Auto-switching from "${currentSiteName}" to "${site.name}"`);
             
@@ -108,9 +122,13 @@ export function activate(context: vscode.ExtensionContext) {
                 currentSiteId = undefined;
                 currentWorkspaceFolderIndex = undefined;
                 
+                // Also reset the syncing context since old connection is stopped
+                await vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
+                
                 vscode.window.showInformationMessage(`💾 Saved "${previousSiteName}" and switching to "${site.name}"`);
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Error switching sites: ${error.message}`);
+                isConnecting = false;
                 return;
             }
         }
@@ -121,6 +139,9 @@ export function activate(context: vscode.ExtensionContext) {
             currentSiteName = site.name;
             // Use site ID if available, otherwise create a safe ID from token
             currentSiteId = site.id || `site-${site.token.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}`;
+            
+            // Mark this site as connected in the tree view
+            siteTreeProvider?.setConnectedSite(site.token);
             
             // Dispose old provider registration if exists
             if (fileSystemProviderDisposable) {
@@ -222,7 +243,11 @@ export function activate(context: vscode.ExtensionContext) {
             currentSiteName = undefined;
             currentSiteId = undefined;
             currentWorkspaceFolderIndex = undefined;
+            siteTreeProvider?.setConnectedSite(undefined);
             vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
+        }
+        } finally {
+            isConnecting = false;
         }
     });
 
@@ -249,6 +274,7 @@ export function activate(context: vscode.ExtensionContext) {
                 currentWorkspaceFolderIndex = undefined;
                 statusBarManager?.hide();
                 fileTreeProvider?.setRootPath(undefined);
+                siteTreeProvider?.setConnectedSite(undefined);
                 vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
             }
             
@@ -291,8 +317,9 @@ export function activate(context: vscode.ExtensionContext) {
                 statusBarManager.hide();
             }
 
-            // Hide file tree
+            // Hide file tree and clear connected site indicator
             fileTreeProvider?.setRootPath(undefined);
+            siteTreeProvider?.setConnectedSite(undefined);
             vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
 
             vscode.window.showInformationMessage(`✅ Stopped syncing "${siteName}" (all changes saved)`);
@@ -355,10 +382,12 @@ export function activate(context: vscode.ExtensionContext) {
                 currentWorkspaceFolderIndex = undefined;
                 statusBarManager?.hide();
                 fileTreeProvider?.setRootPath(undefined);
+                siteTreeProvider?.setConnectedSite(undefined);
                 vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
             }
             
             await context.globalState.update('sleekcms.savedSites', []);
+            vscode.commands.executeCommand('setContext', 'sleekcms.hasSites', false);
             siteTreeProvider?.refresh();
             vscode.window.showInformationMessage('🗑️ All sites cleared');
         }
