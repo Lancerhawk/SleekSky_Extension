@@ -2,7 +2,7 @@
   "name": "sleekcms-sync",
   "displayName": "SleekCMS Sync",
   "description": "Real-time bidirectional sync between VS Code and SleekCMS templates with automatic change detection",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "ArinJain",
   "icon": "images/icon.png",
   "engines": {

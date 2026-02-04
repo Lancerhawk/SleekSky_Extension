@@ -13,9 +13,10 @@ export class FileTreeItem extends vscode.TreeItem {
         this.tooltip = filePath;
         this.contextValue = isDirectory ? 'folder' : 'file';
         
-        // Use resourceUri to leverage VS Code's file icon theme for automatic icons
-        // This provides the best file type icons based on user's icon theme
-        this.resourceUri = vscode.Uri.parse(filePath);
+        // Note: We intentionally don't set resourceUri for virtual file systems
+        // Setting resourceUri with a custom scheme (sleekcms:) causes VS Code to
+        // apply "missing file" decorations (strikethrough) because it can't verify
+        // the file exists through normal file system checks.
         
         if (isDirectory) {
             this.iconPath = new vscode.ThemeIcon('folder');

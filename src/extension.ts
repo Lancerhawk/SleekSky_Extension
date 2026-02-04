@@ -6,15 +6,18 @@ import { SleekCMSApi } from './api';
 import { createFolderName, detectEnvironmentFromToken, ensureFolderName } from './utils/siteHelpers';
 import { SleekCMSFileSystemProvider } from './virtualFileSystem';
 
+const SLEEKCMS_SCHEME = 'sleekcms';
+const WORKSPACE_ID = 'sleekcms-workspace';
+
 let fileSystemProvider: SleekCMSFileSystemProvider | undefined;
 let statusBarManager: StatusBarManager | undefined;
 let siteTreeProvider: SiteTreeProvider | undefined;
 let fileTreeProvider: FileTreeProvider | undefined;
 let currentSiteName: string | undefined;
-let currentSiteId: string | undefined;
-let currentWorkspaceFolderIndex: number | undefined;
 let fileSystemProviderDisposable: vscode.Disposable | undefined;
+let workspaceFolderIndex: number | undefined;
 let isConnecting = false;
+let isSyncing = false;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('SleekCMS Sync extension is now active!');
@@ -34,6 +37,9 @@ export function activate(context: vscode.ExtensionContext) {
     fileTreeProvider = new FileTreeProvider();
     vscode.window.registerTreeDataProvider('sleekcmsFiles', fileTreeProvider);
     context.subscriptions.push(fileTreeProvider);
+
+    // Initialize the single filesystem on activation (always has README.md)
+    initializeFileSystem(context);
 
     // Command: Add New Site
     let addSite = vscode.commands.registerCommand('sleekcms-sync.start', async () => {
@@ -86,7 +92,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // Command: Connect to Site (AUTO-SWITCH)
+    // Command: Connect to Site (requires stopping sync first)
     let connectToSite = vscode.commands.registerCommand('sleekcms-sync.connectToSite', async (site: SavedSite) => {
         // Prevent multiple simultaneous connections
         if (isConnecting) {
@@ -94,88 +100,38 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
         
-        isConnecting = true;
-        
-        try {
-        if (fileSystemProvider) {
-            console.log(`Auto-switching from "${currentSiteName}" to "${site.name}"`);
+        // Check if already syncing to another site
+        if (isSyncing && currentSiteName) {
+            const answer = await vscode.window.showWarningMessage(
+                `Currently syncing "${currentSiteName}". Stop sync first before connecting to another site.`,
+                'Stop Sync',
+                'Cancel'
+            );
             
-            try {
-                statusBarManager?.show('$(sync~spin) Saving changes...', 'Switching sites');
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                // Remove old virtual workspace folder
-                if (currentWorkspaceFolderIndex !== undefined) {
-                    vscode.workspace.updateWorkspaceFolders(currentWorkspaceFolderIndex, 1);
-                }
-                
-                // Dispose provider registration
-                if (fileSystemProviderDisposable) {
-                    fileSystemProviderDisposable.dispose();
-                    fileSystemProviderDisposable = undefined;
-                }
-                
-                fileSystemProvider.shutdown();
-                fileSystemProvider = undefined;
-                const previousSiteName = currentSiteName;
-                currentSiteName = undefined;
-                currentSiteId = undefined;
-                currentWorkspaceFolderIndex = undefined;
-                
-                // Also reset the syncing context since old connection is stopped
-                await vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
-                
-                vscode.window.showInformationMessage(`💾 Saved "${previousSiteName}" and switching to "${site.name}"`);
-            } catch (error: any) {
-                vscode.window.showErrorMessage(`Error switching sites: ${error.message}`);
-                isConnecting = false;
+            if (answer === 'Stop Sync') {
+                await vscode.commands.executeCommand('sleekcms-sync.stop');
+            } else {
                 return;
             }
         }
-
-        if (!statusBarManager || !fileTreeProvider) return;
-
+        
+        isConnecting = true;
+        
         try {
+            if (!statusBarManager || !fileTreeProvider || !fileSystemProvider) {
+                isConnecting = false;
+                return;
+            }
+
             currentSiteName = site.name;
-            // Use site ID if available, otherwise create a safe ID from token
-            currentSiteId = site.id || `site-${site.token.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}`;
             
             // Mark this site as connected in the tree view
             siteTreeProvider?.setConnectedSite(site.token);
             
-            // Dispose old provider registration if exists
-            if (fileSystemProviderDisposable) {
-                fileSystemProviderDisposable.dispose();
-                fileSystemProviderDisposable = undefined;
-            }
+            // Configure the existing filesystem for this site
+            fileSystemProvider.configureSite(site.token, site.environment);
             
-            // Shutdown old provider if exists (from previous connection)
-            if (fileSystemProvider) {
-                (fileSystemProvider as SleekCMSFileSystemProvider).shutdown();
-                fileSystemProvider = undefined;
-            }
-            
-            // Create new file system provider
-            fileSystemProvider = new SleekCMSFileSystemProvider(
-                site.token,
-                site.environment,
-                currentSiteId
-            );
-            
-            // Register file system provider (only once per connection)
-            fileSystemProviderDisposable = vscode.workspace.registerFileSystemProvider('sleekcms', fileSystemProvider, { isCaseSensitive: false });
-            context.subscriptions.push(fileSystemProviderDisposable);
-            
-            // Listen to file system provider changes to refresh tree (set up BEFORE initialization)
-            const changeListener = fileSystemProvider.onDidChangeFile(() => {
-                console.log('File system provider fired change event, refreshing tree');
-                if (fileTreeProvider) {
-                    fileTreeProvider.refresh();
-                }
-            });
-            context.subscriptions.push(changeListener);
-            
-            // Initialize file system (load all templates)
+            // Initialize file system (load all templates alongside README)
             statusBarManager.show('$(sync~spin) Fetching templates...');
             await fileSystemProvider.initialize();
             
@@ -183,19 +139,20 @@ export function activate(context: vscode.ExtensionContext) {
             fileSystemProvider.startPolling();
             
             // Show the file tree view - set context FIRST so view becomes visible
+            isSyncing = true;
             await vscode.commands.executeCommand('setContext', 'sleekcms.syncing', true);
             console.log('Context sleekcms.syncing set to true');
             
-            // Add virtual workspace folder
-            const virtualUri = vscode.Uri.parse(`sleekcms:/${currentSiteId}/`);
-            const workspaceFolders = vscode.workspace.workspaceFolders || [];
-            currentWorkspaceFolderIndex = workspaceFolders.length;
-            
-            vscode.workspace.updateWorkspaceFolders(
-                currentWorkspaceFolderIndex,
-                0,
-                { uri: virtualUri, name: site.name }
-            );
+            // Update workspace folder name to show site name
+            const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+            if (workspaceFolderIndex !== undefined) {
+                // Update the existing workspace folder name
+                vscode.workspace.updateWorkspaceFolders(
+                    workspaceFolderIndex,
+                    1,
+                    { uri: virtualUri, name: `SleekCMS: ${site.name}` }
+                );
+            }
             
             // Wait a bit for the view to become visible, then set root path
             await new Promise(resolve => setTimeout(resolve, 200));
@@ -238,14 +195,21 @@ export function activate(context: vscode.ExtensionContext) {
             
         } catch (error: any) {
             vscode.window.showErrorMessage(`Failed to connect to "${site.name}": ${error.message}`);
-            fileSystemProvider?.shutdown();
-            fileSystemProvider = undefined;
+            // Disconnect on error
+            fileSystemProvider?.disconnect();
             currentSiteName = undefined;
-            currentSiteId = undefined;
-            currentWorkspaceFolderIndex = undefined;
+            isSyncing = false;
             siteTreeProvider?.setConnectedSite(undefined);
             vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
-        }
+            // Update workspace folder name back to default
+            const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+            if (workspaceFolderIndex !== undefined) {
+                vscode.workspace.updateWorkspaceFolders(
+                    workspaceFolderIndex,
+                    1,
+                    { uri: virtualUri, name: 'SleekCMS Workspace' }
+                );
+            }
         } finally {
             isConnecting = false;
         }
@@ -261,21 +225,26 @@ export function activate(context: vscode.ExtensionContext) {
         );
         
         if (answer === 'Yes') {
+            // If removing the currently connected site, stop sync first
             if (currentSiteName === item.site.name && fileSystemProvider) {
-                // Remove virtual workspace folder
-                if (currentWorkspaceFolderIndex !== undefined) {
-                    vscode.workspace.updateWorkspaceFolders(currentWorkspaceFolderIndex, 1);
-                }
-                
-                fileSystemProvider.shutdown();
-                fileSystemProvider = undefined;
+                fileSystemProvider.stopPolling();
+                fileSystemProvider.disconnect();
                 currentSiteName = undefined;
-                currentSiteId = undefined;
-                currentWorkspaceFolderIndex = undefined;
+                isSyncing = false;
                 statusBarManager?.hide();
-                fileTreeProvider?.setRootPath(undefined);
                 siteTreeProvider?.setConnectedSite(undefined);
                 vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
+                
+                // Update workspace folder name back to default
+                const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+                if (workspaceFolderIndex !== undefined) {
+                    vscode.workspace.updateWorkspaceFolders(
+                        workspaceFolderIndex,
+                        1,
+                        { uri: virtualUri, name: 'SleekCMS Workspace' }
+                    );
+                }
+                fileTreeProvider?.refresh();
             }
             
             await siteTreeProvider.removeSite(item.site.token);
@@ -285,7 +254,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Stop Sync
     let stopSync = vscode.commands.registerCommand('sleekcms-sync.stop', async () => {
-        if (!fileSystemProvider) {
+        if (!fileSystemProvider || !isSyncing) {
             vscode.window.showWarningMessage('No site is currently syncing');
             return;
         }
@@ -296,31 +265,33 @@ export function activate(context: vscode.ExtensionContext) {
             statusBarManager?.show('$(sync~spin) Saving final changes...', 'Stopping sync');
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Remove virtual workspace folder
-            if (currentWorkspaceFolderIndex !== undefined) {
-                vscode.workspace.updateWorkspaceFolders(currentWorkspaceFolderIndex, 1);
-            }
+            // Stop polling and disconnect
+            fileSystemProvider.stopPolling();
+            fileSystemProvider.disconnect();
             
-            // Dispose provider registration
-            if (fileSystemProviderDisposable) {
-                fileSystemProviderDisposable.dispose();
-                fileSystemProviderDisposable = undefined;
-            }
-            
-            fileSystemProvider.shutdown();
-            fileSystemProvider = undefined;
             currentSiteName = undefined;
-            currentSiteId = undefined;
-            currentWorkspaceFolderIndex = undefined;
+            isSyncing = false;
 
             if (statusBarManager) {
                 statusBarManager.hide();
             }
 
-            // Hide file tree and clear connected site indicator
-            fileTreeProvider?.setRootPath(undefined);
+            // Clear connected site indicator
             siteTreeProvider?.setConnectedSite(undefined);
             vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
+
+            // Update workspace folder name back to default
+            const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+            if (workspaceFolderIndex !== undefined) {
+                vscode.workspace.updateWorkspaceFolders(
+                    workspaceFolderIndex,
+                    1,
+                    { uri: virtualUri, name: 'SleekCMS Workspace' }
+                );
+            }
+            
+            // Refresh file tree to show only README
+            fileTreeProvider?.refresh();
 
             vscode.window.showInformationMessage(`✅ Stopped syncing "${siteName}" (all changes saved)`);
         } catch (error: any) {
@@ -330,7 +301,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: Refresh File
     let refreshFile = vscode.commands.registerCommand('sleekcms-sync.refresh', async () => {
-        if (!fileSystemProvider) {
+        if (!fileSystemProvider || !isSyncing) {
             vscode.window.showWarningMessage('Sync is not running. Start sync first.');
             return;
         }
@@ -363,32 +334,32 @@ export function activate(context: vscode.ExtensionContext) {
         );
         
         if (answer === 'Yes') {
-            if (fileSystemProvider) {
-                // Remove virtual workspace folder
-                if (currentWorkspaceFolderIndex !== undefined) {
-                    vscode.workspace.updateWorkspaceFolders(currentWorkspaceFolderIndex, 1);
-                }
-                
-                // Dispose provider registration
-                if (fileSystemProviderDisposable) {
-                    fileSystemProviderDisposable.dispose();
-                    fileSystemProviderDisposable = undefined;
-                }
-                
-                fileSystemProvider.shutdown();
-                fileSystemProvider = undefined;
+            // If syncing, stop first
+            if (fileSystemProvider && isSyncing) {
+                fileSystemProvider.stopPolling();
+                fileSystemProvider.disconnect();
                 currentSiteName = undefined;
-                currentSiteId = undefined;
-                currentWorkspaceFolderIndex = undefined;
+                isSyncing = false;
                 statusBarManager?.hide();
-                fileTreeProvider?.setRootPath(undefined);
                 siteTreeProvider?.setConnectedSite(undefined);
                 vscode.commands.executeCommand('setContext', 'sleekcms.syncing', false);
+                
+                // Update workspace folder name back to default
+                const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+                if (workspaceFolderIndex !== undefined) {
+                    vscode.workspace.updateWorkspaceFolders(
+                        workspaceFolderIndex,
+                        1,
+                        { uri: virtualUri, name: 'SleekCMS Workspace' }
+                    );
+                }
             }
             
             await context.globalState.update('sleekcms.savedSites', []);
             vscode.commands.executeCommand('setContext', 'sleekcms.hasSites', false);
             siteTreeProvider?.refresh();
+            fileTreeProvider?.refresh();
+            
             vscode.window.showInformationMessage('🗑️ All sites cleared');
         }
     });
@@ -421,7 +392,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: New File
     let newFile = vscode.commands.registerCommand('sleekcms-sync.newFile', async (item?: FileTreeItem) => {
-        if (!fileSystemProvider || !currentSiteId) {
+        if (!fileSystemProvider || !isSyncing) {
             vscode.window.showErrorMessage('No site is currently connected');
             return;
         }
@@ -431,7 +402,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (item && item.isDirectory) {
             // Right-clicked on a folder - extract path from URI
             const uri = vscode.Uri.parse(item.filePath);
-            targetPath = uri.path.replace(`/${currentSiteId}/`, '').replace(/^\//, '');
+            targetPath = uri.path.replace(`/${WORKSPACE_ID}/`, '').replace(/^\//, '');
         } else {
             // Clicked toolbar button - use root
             targetPath = '';
@@ -446,6 +417,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (!value) return 'File name is required';
                 if (value.includes('/') || value.includes('\\')) return 'File name cannot contain path separators';
                 if (value.startsWith('.')) return 'File name cannot start with a dot';
+                if (value.toLowerCase() === 'readme.md') return 'Cannot create README.md (reserved)';
                 return null;
             }
         });
@@ -454,7 +426,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             const filePath = targetPath ? `${targetPath}/${fileName}` : fileName;
-            const uri = vscode.Uri.parse(`sleekcms:/${currentSiteId}/${filePath}`);
+            const uri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/${filePath}`);
             
             // Create empty file using file system provider
             await fileSystemProvider.writeFile(uri, new TextEncoder().encode(''), { create: true, overwrite: false });
@@ -475,7 +447,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Command: New Folder
     let newFolder = vscode.commands.registerCommand('sleekcms-sync.newFolder', async (item?: FileTreeItem) => {
-        if (!fileSystemProvider || !currentSiteId) {
+        if (!fileSystemProvider || !isSyncing) {
             vscode.window.showErrorMessage('No site is currently connected');
             return;
         }
@@ -485,7 +457,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (item && item.isDirectory) {
             // Right-clicked on a folder - extract path from URI
             const uri = vscode.Uri.parse(item.filePath);
-            targetPath = uri.path.replace(`/${currentSiteId}/`, '').replace(/^\//, '');
+            targetPath = uri.path.replace(`/${WORKSPACE_ID}/`, '').replace(/^\//, '');
         } else {
             // Clicked toolbar button - use root
             targetPath = '';
@@ -508,7 +480,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             const folderPath = targetPath ? `${targetPath}/${folderName}` : folderName;
-            const uri = vscode.Uri.parse(`sleekcms:/${currentSiteId}/${folderPath}/`);
+            const uri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/${folderPath}/`);
             
             // Create directory using file system provider
             await fileSystemProvider.createDirectory(uri);
@@ -580,6 +552,49 @@ export function activate(context: vscode.ExtensionContext) {
         deleteFile,
         deleteFolder
     );
+}
+
+// Initialize the single filesystem that always exists
+function initializeFileSystem(context: vscode.ExtensionContext): void {
+    console.log('Initializing SleekCMS filesystem');
+    
+    // Create the filesystem provider
+    fileSystemProvider = new SleekCMSFileSystemProvider(WORKSPACE_ID);
+    
+    // Register the filesystem provider
+    fileSystemProviderDisposable = vscode.workspace.registerFileSystemProvider(
+        SLEEKCMS_SCHEME,
+        fileSystemProvider,
+        { isCaseSensitive: false }
+    );
+    context.subscriptions.push(fileSystemProviderDisposable);
+    
+    // Listen to file system provider changes to refresh tree
+    const changeListener = fileSystemProvider.onDidChangeFile(() => {
+        console.log('File system provider fired change event, refreshing tree');
+        if (fileTreeProvider) {
+            fileTreeProvider.refresh();
+        }
+    });
+    context.subscriptions.push(changeListener);
+    
+    // Add workspace folder
+    const virtualUri = vscode.Uri.parse(`sleekcms:/${WORKSPACE_ID}/`);
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+    workspaceFolderIndex = workspaceFolders.length;
+    
+    vscode.workspace.updateWorkspaceFolders(
+        workspaceFolderIndex,
+        0,
+        { uri: virtualUri, name: 'SleekCMS Workspace' }
+    );
+    
+    // Set up file tree view
+    if (fileTreeProvider) {
+        fileTreeProvider.setRootPath(virtualUri.toString());
+    }
+    
+    console.log('SleekCMS filesystem initialized with README.md');
 }
 
 export function deactivate() {

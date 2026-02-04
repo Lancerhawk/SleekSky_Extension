@@ -1,21 +1,64 @@
 import * as vscode from 'vscode';
 import { SleekCMSApi, Template, SleekEnvironment } from './api';
 
+const README_PATH = 'README.md';
+const README_CONTENT = `# SleekCMS Workspace
+
+Welcome to your SleekCMS workspace!
+
+## Getting Started
+
+1. **Add a site**: Click the "+" button in the SleekCMS Sites panel
+2. **Connect**: Click on a site to load its files
+3. **Edit**: Make changes to your templates - they auto-save to the server
+4. **Stop Sync**: Click "Stop Sync" before connecting to another site
+
+## Tips
+
+- Files are synced automatically when you save
+- The server checks for remote changes every 60 seconds
+- This README.md file always remains in your workspace
+`;
+
 export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
     private _emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
     readonly onDidChangeFile: vscode.Event<vscode.FileChangeEvent[]> = this._emitter.event;
 
     private fileMap: Map<string, Template> = new Map(); // Maps file paths to templates
     private directoryCache: Map<string, string[]> = new Map(); // Maps directory paths to their children
-    private api: SleekCMSApi;
+    private api: SleekCMSApi | undefined;
     private siteId: string;
     private pollInterval?: NodeJS.Timeout;
     private isShuttingDown = false;
     private isLocalUpdate = false;
+    private isConnected = false;
 
-    constructor(token: string, environment: SleekEnvironment, siteId: string) {
-        this.api = new SleekCMSApi(token, environment);
+    constructor(siteId: string) {
         this.siteId = siteId;
+        // Add the README to the file map on construction
+        this.addReadme();
+    }
+
+    // Add the permanent README.md file
+    private addReadme(): void {
+        const readmeTemplate: Template = {
+            id: '__readme__',
+            file_path: README_PATH,
+            code: README_CONTENT,
+            updated_at: new Date().toISOString(),
+        };
+        this.fileMap.set(README_PATH, readmeTemplate);
+    }
+
+    // Configure the provider for a specific site
+    configureSite(token: string, environment: SleekEnvironment): void {
+        this.api = new SleekCMSApi(token, environment);
+        this.isConnected = true;
+    }
+
+    // Check if connected to a site
+    getIsConnected(): boolean {
+        return this.isConnected;
     }
 
     watch(uri: vscode.Uri, options: { recursive: boolean; excludes: string[] }): vscode.Disposable {
@@ -123,6 +166,17 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
 
     async writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean }): Promise<void> {
         const path = this.getPathFromUri(uri);
+        
+        // Prevent writing to README.md
+        if (path === README_PATH) {
+            throw vscode.FileSystemError.NoPermissions('Cannot modify the README.md file');
+        }
+        
+        // Require connection to write files
+        if (!this.api || !this.isConnected) {
+            throw vscode.FileSystemError.NoPermissions('No site connected. Click a site in the SleekCMS Sites panel to connect first.');
+        }
+        
         const code = new TextDecoder().decode(content);
         
         this.isLocalUpdate = true;
@@ -175,6 +229,17 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
 
     async delete(uri: vscode.Uri, options: { recursive: boolean }): Promise<void> {
         const path = this.getPathFromUri(uri);
+        
+        // Prevent deleting README.md
+        if (path === README_PATH) {
+            throw vscode.FileSystemError.NoPermissions('Cannot delete the README.md file');
+        }
+        
+        // Require connection to delete files
+        if (!this.api || !this.isConnected) {
+            throw vscode.FileSystemError.NoPermissions('No site connected. Click a site in the SleekCMS Sites panel to connect first.');
+        }
+        
         const template = this.fileMap.get(path);
         
         if (!template) {
@@ -203,6 +268,14 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
     }
 
     async rename(oldUri: vscode.Uri, newUri: vscode.Uri, options: { overwrite: boolean }): Promise<void> {
+        const oldPath = this.getPathFromUri(oldUri);
+        const newPath = this.getPathFromUri(newUri);
+        
+        // Prevent renaming README.md
+        if (oldPath === README_PATH || newPath === README_PATH) {
+            throw vscode.FileSystemError.NoPermissions('Cannot rename the README.md file');
+        }
+        
         // SleekCMS doesn't support rename directly, so we:
         // 1. Read the old file
         // 2. Create the new file
@@ -222,13 +295,18 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
         }
     }
 
-    // Initialize: Load all templates from server
+    // Initialize: Load all templates from server (adds them alongside README)
     async initialize(): Promise<void> {
+        if (!this.api) {
+            throw new Error('No site configured. Call configureSite() first.');
+        }
+        
         try {
             const templates = await this.api.fetchAllTemplates();
             console.log(`SleekCMSFileSystemProvider: Initializing with ${templates.length} templates`);
-            this.fileMap.clear();
-            this.directoryCache.clear();
+            
+            // Clear existing site files but keep README (clearSiteFiles preserves connection state)
+            this.clearSiteFiles();
 
             for (const template of templates) {
                 if (template.file_path) {
@@ -241,6 +319,9 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
             // Build directory cache
             this.buildDirectoryCache();
             console.log(`SleekCMSFileSystemProvider: Initialization complete. File map size: ${this.fileMap.size}`);
+            
+            // Fire change events to refresh UI
+            this._emitter.fire([{ type: vscode.FileChangeType.Changed, uri: vscode.Uri.parse(`sleekcms:/${this.siteId}/`) }]);
         } catch (error: any) {
             console.error(`SleekCMSFileSystemProvider: Initialization failed: ${error.message}`);
             throw new Error(`Failed to initialize file system: ${error.message}`);
@@ -251,7 +332,7 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
     startPolling(): void {
         const POLL_INTERVAL = 60000;
         this.pollInterval = setInterval(async () => {
-            if (!this.isShuttingDown && !this.isLocalUpdate) {
+            if (!this.isShuttingDown && !this.isLocalUpdate && this.isConnected) {
                 await this.checkForRemoteChanges();
             }
         }, POLL_INTERVAL);
@@ -267,6 +348,8 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
 
     // Check for remote changes and update local cache
     private async checkForRemoteChanges(): Promise<void> {
+        if (!this.api) return;
+        
         try {
             const templates = await this.api.fetchAllTemplates();
             const currentRemoteIds = new Set<string>();
@@ -304,8 +387,9 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
                 }
             }
 
-            // Check for deleted files
+            // Check for deleted files (skip README)
             for (const [path, localTemplate] of this.fileMap.entries()) {
+                if (path === README_PATH) continue; // Never remove README
                 if (localTemplate.id && !currentRemoteIds.has(localTemplate.id)) {
                     this.fileMap.delete(path);
                     const uri = this.getUriFromPath(path);
@@ -356,15 +440,57 @@ export class SleekCMSFileSystemProvider implements vscode.FileSystemProvider {
         this._emitter.fire([{ type, uri }]);
     }
 
-    // Shutdown
+    // Clear site files but keep README (called when stopping sync)
+    clearSiteFiles(): void {
+        console.log('SleekCMSFileSystemProvider: Clearing site files (keeping README)');
+        
+        // Collect files to remove (everything except README)
+        const filesToRemove: string[] = [];
+        for (const path of this.fileMap.keys()) {
+            if (path !== README_PATH) {
+                filesToRemove.push(path);
+            }
+        }
+        
+        // Remove files and fire change events
+        for (const path of filesToRemove) {
+            this.fileMap.delete(path);
+            const uri = this.getUriFromPath(path);
+            this._fireFileChange(uri, vscode.FileChangeType.Deleted);
+        }
+        
+        this.directoryCache.clear();
+        
+        console.log(`SleekCMSFileSystemProvider: Cleared ${filesToRemove.length} files. README remains.`);
+    }
+
+    // Disconnect from site (called when stopping sync)
+    disconnect(): void {
+        this.clearSiteFiles();
+        this.api = undefined;
+        this.isConnected = false;
+    }
+
+    // Shutdown completely
     shutdown(): void {
         this.isShuttingDown = true;
         this.stopPolling();
+        this.disconnect();
     }
 
     // Refresh a specific file from server
     async refreshFile(uri: vscode.Uri): Promise<void> {
         const path = this.getPathFromUri(uri);
+        
+        // Can't refresh README from server
+        if (path === README_PATH) {
+            return;
+        }
+        
+        if (!this.api) {
+            throw vscode.FileSystemError.NoPermissions('No site connected');
+        }
+        
         const template = this.fileMap.get(path);
         
         if (!template?.id) {

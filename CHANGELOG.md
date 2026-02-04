@@ -2,6 +2,62 @@
 
 All notable changes to the "SleekCMS Sync" extension will be documented in this file.
 
+## [1.5.0] - 2026-02-05
+
+### 🎉 Major Architectural Improvements
+
+#### Virtual File System Enhancements
+- **Persistent README.md**: Added a permanent README.md file in the virtual workspace
+  - Always present, even when not connected to a site
+  - Provides helpful getting started guide and tips
+  - Cannot be modified or deleted (read-only)
+  - Remains in workspace across connections
+- **Improved Connection Management**: Enhanced site connection and disconnection flow
+  - Better state management with `isConnected` flag
+  - Cleaner separation between connected and disconnected states
+  - `configureSite()` method for setting up API connection
+  - `disconnect()` method properly clears site files while keeping README
+
+#### File Tree View Improvements
+- **Icon Rendering Fix**: Removed `resourceUri` from FileTreeItem constructor
+  - Prevents "missing file" decorations (strikethrough) on virtual files
+  - VS Code was applying file-not-found styling due to custom scheme
+  - Added detailed comments explaining the architectural decision
+  - Files now display cleanly without visual artifacts
+
+#### Extension Architecture
+- **Single Persistent Workspace**: Changed from per-site workspaces to single persistent workspace
+  - Workspace ID: `sleekcms-workspace` (constant across sessions)
+  - Workspace folder name updates dynamically to show connected site
+  - Prevents workspace folder churn when switching sites
+  - Better user experience with consistent workspace structure
+- **Improved Initialization**: File system provider initialized on activation
+  - Always has README.md available from start
+  - Site files loaded on top of README when connecting
+  - Cleaner lifecycle management
+
+#### Developer Experience
+- **Launch Configuration**: Added test workspace path to `.vscode/launch.json`
+  - Enables easier debugging with pre-configured test workspace
+  - Speeds up development workflow
+- **Better Error Messages**: Enhanced user-facing error messages
+  - Clear guidance when trying to modify README.md
+  - Better connection state error messages
+
+### 🛠️ Technical Improvements
+- Refactored virtual file system provider for better maintainability
+- Improved memory management during site switching
+- Enhanced file change event handling
+- Better separation of concerns between connection and file management
+
+### 🐛 Bug Fixes
+- Fixed file tree not showing files immediately after connection
+- Fixed workspace folder name not updating when switching sites
+- Fixed README.md validation preventing file creation in root
+- Improved file tree refresh timing and reliability
+
+---
+
 ## [1.4.0] - 2026-02-03
 
 ### 🐛 Bug Fixes & Improvements
